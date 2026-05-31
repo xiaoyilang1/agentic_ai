@@ -1,0 +1,12 @@
+app:
+  name: my-agent
+  version: 1.0.0
+  debug: false
+
+api:
+  base_url: https://api.example.com
+  timeout: 30
+
+user:
+  name: Alice
+  role: developer
