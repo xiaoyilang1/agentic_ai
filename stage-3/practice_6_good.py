@@ -1,0 +1,109 @@
+"""
+练习 6：Schema 设计 — 优质 Schema
+
+清晰的工具用途、正确类型、必填字段与枚举约束。小模型（qwen2.5:3b）也能稳定
+选中 `convert_temperature`。对照 `starter_bad.py`。
+
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+MODEL = os.environ.get("MODEL", "deepseek-v4-flash")  # tool-use 稳定的 model 
+
+
+def process_data(data: list[dict], operation: str) -> dict:
+    if operation == "count_rows":
+        return {"rows": len(data)}
+    if operation == "list_columns":
+        return {"columns": sorted({key for row in data for key in row})}
+    return {"error": "unknown operation", "retry_hint": "use count_rows or list_columns"}
+
+
+def convert_temperature(value: float, unit: str) -> dict:
+    if unit == "celsius":
+        return {"value": round(value * 9 / 5 + 32, 2), "unit": "fahrenheit"}
+    if unit == "fahrenheit":
+        return {"value": round((value - 32) * 5 / 9, 2), "unit": "celsius"}
+    return {"error": "unsupported unit", "retry_hint": "unit must be celsius or fahrenheit"}
+
+
+# 优质 schema：用途明确、类型正确、必填项、枚举约束
+TOOLS_SPEC = [
+    {
+        "type": "function",
+        "function": {
+            "name": "process_data",
+            "description": "Use only to summarize structured JSON table rows. Do not use for temperature conversion.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "array", "items": {"type": "object"}, "description": "Rows to inspect"},
+                    "operation": {"type": "string", "enum": ["count_rows", "list_columns"]},
+                },
+                "required": ["data", "operation"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_temperature",
+            "description": "Use this when the user asks to convert temperatures between Fahrenheit and Celsius.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "number", "description": "Temperature value to convert"},
+                    "unit": {"type": "string", "enum": ["celsius", "fahrenheit"], "description": "Unit of the input value"},
+                },
+                "required": ["value", "unit"],
+            },
+        },
+    },
+]
+
+TOOL_IMPL = {
+    "process_data": lambda i: process_data(i["data"], i["operation"]),
+    "convert_temperature": lambda i: convert_temperature(i["value"], i["unit"]),
+}
+
+
+def select_and_run(question: str, client: Any = None) -> dict:
+    client = OpenAI(base_url="https://api.deepseek.com", 
+                    api_key=os.environ.get("DEEPSEEK_API_KEY"))
+    resp = client.chat.completions.create(
+        model=MODEL,
+        tools=TOOLS_SPEC,
+        messages=[{"role": "user", "content": question}],
+    )
+    msg = resp.choices[0].message
+    tool_calls = msg.tool_calls or []
+    if not tool_calls:
+        return {"tool": None, "tool_input": {}, "observation": None}
+    call = tool_calls[0]
+    args = json.loads(call.function.arguments)
+    return {"tool": call.function.name, "tool_input": args, "observation": TOOL_IMPL[call.function.name](args)}
+
+
+if __name__ == "__main__":
+    question = "Convert 32 Celsius to Fahrenheit."
+    print(f"❓ 问题：{question}（使用 {MODEL}、优质 Schema）")
+    result = select_and_run(question)
+    print(f"   工具: {result['tool']}")
+    print(f"   工具参数: {result.get('tool_input')}")
+    print(f"   执行结果: {result['observation']}")
+
+    assert result["tool"] == "convert_temperature", f"预期为 convert_temperature，实际得到 {result['tool']}"
+    print("✅ 优质 Schema 示例运行通过 — deepseek 在清晰的 Schema 下能稳定选对工具、0 成本运行")
