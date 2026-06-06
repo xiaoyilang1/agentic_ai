@@ -4,7 +4,7 @@
 看代码风格差异——CrewAI 用 Agent + Task 抽象、LangGraph 用 StateGraph + node。
 
 运行方式：
-    pip install -r requirements.txt   # 包含 crewai, langchain-openai
+    pip install -r requirements.txt   # 包含 crewai
     export DEEPSEEK_API_KEY=sk-...
     python starter_crewai_deepseek.py
 
@@ -19,10 +19,10 @@ import sys
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from crewai import Agent, Crew, Task
+from crewai import Agent, Crew, Task, LLM  # 改用 CrewAI 的 LLM 类
 from crewai.tools import tool
-from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+
 load_dotenv()
 
 # DeepSeek 配置
@@ -46,9 +46,10 @@ def search(query: str) -> str:
 
 def build_crew(query: str) -> Crew:
     """CrewAI 风格：一个 agent + 一个 task，使用 DeepSeek LLM。"""
-    llm = ChatOpenAI(
-        model=MODEL,
-        openai_api_key=DEEPSEEK_API_KEY,
+    # 使用 CrewAI 的 LLM 类配置 DeepSeek
+    llm = LLM(
+        model=f"deepseek/{MODEL}",  # 格式: provider/model_name
+        api_key=DEEPSEEK_API_KEY,
         base_url=BASE_URL,
         temperature=0,
     )
